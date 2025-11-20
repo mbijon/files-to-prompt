@@ -10,7 +10,9 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License"
 ]
 dependencies = [
-    "click"
+    "click",
+    "pandoc>=2.4",
+    "pdfplumber",
 ]
 
 [project.urls]

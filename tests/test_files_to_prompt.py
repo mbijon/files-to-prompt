@@ -1,6 +1,7 @@
 import os
 import pytest
 import re
+import shutil
 
 from click.testing import CliRunner
 
@@ -235,7 +236,7 @@ def test_mixed_paths_with_options(tmpdir):
 
 
 def test_binary_file_warning(tmpdir):
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with tmpdir.as_cwd():
         os.makedirs("test_dir")
         with open("test_dir/binary_file.bin", "wb") as f:
@@ -252,10 +253,8 @@ def test_binary_file_warning(tmpdir):
         assert "test_dir/text_file.txt" in stdout
         assert "This is a text file" in stdout
         assert "\ntest_dir/binary_file.bin" not in stdout
-        assert (
-            "Warning: Skipping file test_dir/binary_file.bin due to UnicodeDecodeError"
-            in stderr
-        )
+        assert "Skipping file test_dir/binary_file.bin" in stderr
+        assert "UnicodeDecodeError" in stderr
 
 
 @pytest.mark.parametrize(
@@ -439,3 +438,26 @@ def test_markdown(tmpdir, option):
             "`````\n"
         )
         assert expected.strip() == actual.strip()
+
+
+@pytest.mark.skipif(
+    shutil.which("pandoc") is None, reason="pandoc is required for DOCX extraction"
+)
+def test_docx_extraction():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["tests/media/Gemini 3 Developer Guide.docx"])
+    assert result.exit_code == 0
+    assert "tests/media/Gemini 3 Developer Guide.docx" in result.output
+    assert "Gemini 3 Developer Guide" in result.output
+    assert "Gemini 3 is our most intelligent model family to date" in result.output
+
+
+def test_pdf_extraction():
+    pytest.importorskip("pdfplumber")
+    runner = CliRunner()
+    result = runner.invoke(cli, ["tests/media/GOOG 10-Q Q2 summary 2025.pdf"])
+    assert result.exit_code == 0
+    assert "tests/media/GOOG 10-Q Q2 summary 2025.pdf" in result.output
+    assert "UNITED STATES" in result.output
+    assert "Alphabet Inc." in result.output
+    assert "Table 1 (page 6)" in result.output

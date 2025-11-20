@@ -1,4 +1,6 @@
 import os
+import shutil
+import subprocess
 import sys
 from fnmatch import fnmatch
 
@@ -98,6 +100,92 @@ def print_as_markdown(writer, path, content, line_numbers):
     writer(f"{backticks}")
 
 
+def warn_skipping(path, reason):
+    message = f"Warning: Skipping file {path} ({reason})"
+    click.echo(click.style(message, fg="red"), err=True)
+
+
+def extract_docx(path):
+    if shutil.which("pandoc") is None:
+        warn_skipping(path, "pandoc is not installed")
+        return None
+    try:
+        result = subprocess.run(
+            ["pandoc", "--track-changes=all", path, "-t", "gfm"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.strip() if e.stderr else "pandoc failed"
+        warn_skipping(path, stderr)
+        return None
+
+
+def table_to_markdown(table):
+    if not table:
+        return ""
+    max_cols = max(len(row) for row in table if row)
+    normalized = []
+    for row in table:
+        row = row or []
+        normalized.append([cell or "" for cell in row] + [""] * (max_cols - len(row)))
+    header = normalized[0]
+    divider = ["---"] * max_cols
+    body = normalized[1:]
+    lines = [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join(divider) + " |",
+    ]
+    for row in body:
+        lines.append("| " + " | ".join(row) + " |")
+    return "\n".join(lines)
+
+
+def extract_pdf(path):
+    try:
+        import pdfplumber
+    except ImportError:
+        warn_skipping(path, "pdfplumber is not installed")
+        return None
+
+    try:
+        fragments = []
+        with pdfplumber.open(path) as pdf:
+            for page_index, page in enumerate(pdf.pages, start=1):
+                text = page.extract_text() or ""
+                if text.strip():
+                    fragments.append(text)
+                tables = page.extract_tables()
+                for table_index, table in enumerate(tables, start=1):
+                    md_table = table_to_markdown(table)
+                    if md_table:
+                        fragments.append(
+                            f"Table {table_index} (page {page_index}):\n{md_table}"
+                        )
+        return "\n\n".join(fragments)
+    except Exception as e:
+        warn_skipping(path, str(e))
+        return None
+
+
+def read_file_contents(path):
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".docx":
+        return extract_docx(path)
+    if ext == ".pdf":
+        return extract_pdf(path)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except UnicodeDecodeError:
+        warn_skipping(path, "UnicodeDecodeError")
+    except OSError as e:
+        warn_skipping(path, str(e))
+    return None
+
+
 def process_path(
     path,
     extensions,
@@ -112,12 +200,9 @@ def process_path(
     line_numbers=False,
 ):
     if os.path.isfile(path):
-        try:
-            with open(path, "r") as f:
-                print_path(writer, path, f.read(), claude_xml, markdown, line_numbers)
-        except UnicodeDecodeError:
-            warning_message = f"Warning: Skipping file {path} due to UnicodeDecodeError"
-            click.echo(click.style(warning_message, fg="red"), err=True)
+        content = read_file_contents(path)
+        if content is not None:
+            print_path(writer, path, content, claude_xml, markdown, line_numbers)
     elif os.path.isdir(path):
         for root, dirs, files in os.walk(path):
             if not include_hidden:
@@ -155,21 +240,16 @@ def process_path(
 
             for file in sorted(files):
                 file_path = os.path.join(root, file)
-                try:
-                    with open(file_path, "r") as f:
-                        print_path(
-                            writer,
-                            file_path,
-                            f.read(),
-                            claude_xml,
-                            markdown,
-                            line_numbers,
-                        )
-                except UnicodeDecodeError:
-                    warning_message = (
-                        f"Warning: Skipping file {file_path} due to UnicodeDecodeError"
+                content = read_file_contents(file_path)
+                if content is not None:
+                    print_path(
+                        writer,
+                        file_path,
+                        content,
+                        claude_xml,
+                        markdown,
+                        line_numbers,
                     )
-                    click.echo(click.style(warning_message, fg="red"), err=True)
 
 
 def read_paths_from_stdin(use_null_separator):
