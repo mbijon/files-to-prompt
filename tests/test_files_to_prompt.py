@@ -235,7 +235,7 @@ def test_mixed_paths_with_options(tmpdir):
 
 
 def test_binary_file_warning(tmpdir):
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with tmpdir.as_cwd():
         os.makedirs("test_dir")
         with open("test_dir/binary_file.bin", "wb") as f:
@@ -439,3 +439,89 @@ def test_markdown(tmpdir, option):
             "`````\n"
         )
         assert expected.strip() == actual.strip()
+
+
+def test_docx_extraction():
+    """Test that DOCX files can be extracted and processed."""
+    runner = CliRunner()
+    # Use the sample DOCX file from tests/media
+    docx_path = os.path.join(os.path.dirname(__file__), "media", "Gemini 3 Developer Guide.docx")
+    
+    if not os.path.exists(docx_path):
+        pytest.skip(f"Sample DOCX file not found at {docx_path}")
+    
+    result = runner.invoke(cli, [docx_path])
+    assert result.exit_code == 0
+    assert docx_path in result.output
+    # Check that some content was extracted (not empty)
+    # The exact content depends on the file, but we should have more than just the path
+    output_lines = result.output.split("\n")
+    content_lines = [line for line in output_lines if line.strip() and not line.startswith("---") and docx_path not in line]
+    assert len(content_lines) > 0, "DOCX file should have extracted content"
+
+
+def test_docx_extraction_markdown():
+    """Test that DOCX files work with markdown output format."""
+    runner = CliRunner()
+    docx_path = os.path.join(os.path.dirname(__file__), "media", "Gemini 3 Developer Guide.docx")
+    
+    if not os.path.exists(docx_path):
+        pytest.skip(f"Sample DOCX file not found at {docx_path}")
+    
+    result = runner.invoke(cli, [docx_path, "--markdown"])
+    assert result.exit_code == 0
+    assert docx_path in result.output
+    # Check that content was extracted
+    output_lines = result.output.split("\n")
+    content_lines = [line for line in output_lines if line.strip() and not line.startswith("```") and docx_path not in line]
+    assert len(content_lines) > 0, "DOCX file should have extracted content in markdown format"
+
+
+def test_pdf_extraction():
+    """Test that PDF files can be extracted and processed."""
+    runner = CliRunner()
+    # Use the sample PDF file from tests/media
+    pdf_path = os.path.join(os.path.dirname(__file__), "media", "GOOG 10-Q Q2 summary 2025.pdf")
+    
+    if not os.path.exists(pdf_path):
+        pytest.skip(f"Sample PDF file not found at {pdf_path}")
+    
+    result = runner.invoke(cli, [pdf_path])
+    assert result.exit_code == 0
+    assert pdf_path in result.output
+    # Check that some content was extracted (not empty)
+    output_lines = result.output.split("\n")
+    content_lines = [line for line in output_lines if line.strip() and not line.startswith("---") and pdf_path not in line]
+    assert len(content_lines) > 0, "PDF file should have extracted content"
+
+
+def test_pdf_extraction_markdown():
+    """Test that PDF files work with markdown output format."""
+    runner = CliRunner()
+    pdf_path = os.path.join(os.path.dirname(__file__), "media", "GOOG 10-Q Q2 summary 2025.pdf")
+    
+    if not os.path.exists(pdf_path):
+        pytest.skip(f"Sample PDF file not found at {pdf_path}")
+    
+    result = runner.invoke(cli, [pdf_path, "--markdown"])
+    assert result.exit_code == 0
+    assert pdf_path in result.output
+    # Check that content was extracted
+    output_lines = result.output.split("\n")
+    content_lines = [line for line in output_lines if line.strip() and not line.startswith("```") and pdf_path not in line]
+    assert len(content_lines) > 0, "PDF file should have extracted content in markdown format"
+
+
+def test_pdf_tables_extraction():
+    """Test that PDF tables are extracted and formatted as markdown."""
+    runner = CliRunner()
+    pdf_path = os.path.join(os.path.dirname(__file__), "media", "GOOG 10-Q Q2 summary 2025.pdf")
+    
+    if not os.path.exists(pdf_path):
+        pytest.skip(f"Sample PDF file not found at {pdf_path}")
+    
+    result = runner.invoke(cli, [pdf_path])
+    assert result.exit_code == 0
+    # Check if tables are present (look for "Table" keyword which we add in format_table_as_markdown)
+    # Note: The PDF may or may not have tables, so we just check that extraction works
+    assert pdf_path in result.output

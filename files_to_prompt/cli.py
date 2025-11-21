@@ -1,5 +1,6 @@
 import os
 import sys
+import subprocess
 from fnmatch import fnmatch
 
 import click
@@ -50,6 +51,109 @@ def add_line_numbers(content):
 
     numbered_lines = [f"{i + 1:{padding}}  {line}" for i, line in enumerate(lines)]
     return "\n".join(numbered_lines)
+
+
+def extract_docx_text(file_path):
+    """Extract text from a DOCX file using pandoc."""
+    try:
+        # Use pandoc to convert DOCX to markdown with tracked changes
+        result = subprocess.run(
+            ["pandoc", "--track-changes=all", file_path, "-t", "markdown"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        warning_message = (
+            f"Warning: Failed to extract text from {file_path} using pandoc: {e.stderr}"
+        )
+        click.echo(click.style(warning_message, fg="red"), err=True)
+        return ""
+    except FileNotFoundError:
+        warning_message = f"Warning: pandoc not found. Please install pandoc to extract text from DOCX files."
+        click.echo(click.style(warning_message, fg="red"), err=True)
+        return ""
+
+
+def extract_pdf_text(file_path):
+    """Extract text and tables from a PDF file using pdfplumber."""
+    try:
+        import pdfplumber
+    except ImportError:
+        warning_message = f"Warning: pdfplumber not installed. Please install pdfplumber to extract text from PDF files."
+        click.echo(click.style(warning_message, fg="red"), err=True)
+        return ""
+
+    content_parts = []
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            for i, page in enumerate(pdf.pages):
+                # Extract text
+                text = page.extract_text()
+                if text:
+                    content_parts.append(text)
+
+                # Extract tables
+                tables = page.extract_tables()
+                if tables:
+                    for j, table in enumerate(tables):
+                        if table:
+                            content_parts.append(f"\n\nTable {j+1} on page {i+1}:\n")
+                            # Format table as markdown
+                            markdown_table = format_table_as_markdown(table)
+                            content_parts.append(markdown_table)
+
+        return "\n".join(content_parts)
+    except Exception as e:
+        warning_message = f"Warning: Failed to extract text from {file_path}: {str(e)}"
+        click.echo(click.style(warning_message, fg="red"), err=True)
+        return ""
+
+
+def format_table_as_markdown(table):
+    """Format a table (list of lists) as markdown table."""
+    if not table or not table[0]:
+        return ""
+
+    # Find the maximum number of columns across all rows
+    max_cols = max(len(row) for row in table if row)
+
+    markdown_lines = []
+    # Header row
+    header = table[0]
+    # Pad header to max_cols if needed
+    header_padded = list(header) + [""] * (max_cols - len(header))
+    markdown_lines.append(
+        "| " + " | ".join(str(cell) if cell else "" for cell in header_padded) + " |"
+    )
+    markdown_lines.append("| " + " | ".join("---" for _ in range(max_cols)) + " |")
+
+    # Data rows
+    for row in table[1:]:
+        # Pad row to max_cols if needed
+        row_padded = list(row) + [""] * (max_cols - len(row))
+        markdown_lines.append(
+            "| " + " | ".join(str(cell) if cell else "" for cell in row_padded) + " |"
+        )
+
+    return "\n".join(markdown_lines)
+
+
+def read_file_content(file_path):
+    """Read file content, handling different file types."""
+    file_ext = os.path.splitext(file_path)[1].lower()
+
+    if file_ext == ".docx":
+        return extract_docx_text(file_path)
+    elif file_ext == ".pdf":
+        return extract_pdf_text(file_path)
+    else:
+        # Default: read as text
+        # Try UTF-8 first, then raise UnicodeDecodeError if it fails
+        # This preserves the original behavior for binary files
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
 
 
 def print_path(writer, path, content, cxml, markdown, line_numbers):
@@ -113,10 +217,13 @@ def process_path(
 ):
     if os.path.isfile(path):
         try:
-            with open(path, "r") as f:
-                print_path(writer, path, f.read(), claude_xml, markdown, line_numbers)
+            content = read_file_content(path)
+            print_path(writer, path, content, claude_xml, markdown, line_numbers)
         except UnicodeDecodeError:
             warning_message = f"Warning: Skipping file {path} due to UnicodeDecodeError"
+            click.echo(click.style(warning_message, fg="red"), err=True)
+        except Exception as e:
+            warning_message = f"Warning: Skipping file {path} due to error: {str(e)}"
             click.echo(click.style(warning_message, fg="red"), err=True)
     elif os.path.isdir(path):
         for root, dirs, files in os.walk(path):
@@ -156,18 +263,23 @@ def process_path(
             for file in sorted(files):
                 file_path = os.path.join(root, file)
                 try:
-                    with open(file_path, "r") as f:
-                        print_path(
-                            writer,
-                            file_path,
-                            f.read(),
-                            claude_xml,
-                            markdown,
-                            line_numbers,
-                        )
+                    content = read_file_content(file_path)
+                    print_path(
+                        writer,
+                        file_path,
+                        content,
+                        claude_xml,
+                        markdown,
+                        line_numbers,
+                    )
                 except UnicodeDecodeError:
                     warning_message = (
                         f"Warning: Skipping file {file_path} due to UnicodeDecodeError"
+                    )
+                    click.echo(click.style(warning_message, fg="red"), err=True)
+                except Exception as e:
+                    warning_message = (
+                        f"Warning: Skipping file {file_path} due to error: {str(e)}"
                     )
                     click.echo(click.style(warning_message, fg="red"), err=True)
 
