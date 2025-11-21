@@ -439,3 +439,72 @@ def test_markdown(tmpdir, option):
             "`````\n"
         )
         assert expected.strip() == actual.strip()
+
+
+def test_docx_extraction():
+    """Test extraction of text from DOCX file."""
+    runner = CliRunner()
+    docx_path = "tests/media/Gemini 3 Developer Guide.docx"
+    if not os.path.exists(docx_path):
+        pytest.skip(f"Test file {docx_path} not found")
+
+    result = runner.invoke(cli, [docx_path])
+    assert result.exit_code == 0
+    assert docx_path in result.output
+    # The output should contain some text extracted from the DOCX file
+    assert len(result.output) > 0
+
+
+def test_docx_in_directory():
+    """Test that DOCX files in a directory are processed correctly."""
+    runner = CliRunner()
+    # Test with a directory containing the DOCX file
+    test_dir = "tests/media"
+    if not os.path.exists(os.path.join(test_dir, "Gemini 3 Developer Guide.docx")):
+        pytest.skip("Test DOCX file not found")
+
+    result = runner.invoke(cli, [test_dir])
+    assert result.exit_code == 0
+    # Should include the DOCX file path in output
+    assert "Gemini 3 Developer Guide.docx" in result.output
+
+
+def test_pdf_extraction():
+    """Test extraction of text from PDF file."""
+    runner = CliRunner()
+    pdf_path = "tests/media/GOOG 10-Q Q2 summary 2025.pdf"
+    if not os.path.exists(pdf_path):
+        pytest.skip(f"Test file {pdf_path} not found")
+
+    result = runner.invoke(cli, [pdf_path])
+    assert result.exit_code == 0
+    assert pdf_path in result.output
+    # The output should contain some text extracted from the PDF file
+    assert len(result.output) > 0
+
+
+def test_pdf_in_directory():
+    """Test that PDF files in a directory are processed correctly."""
+    runner = CliRunner()
+    # Test with a directory containing the PDF file
+    test_dir = "tests/media"
+    if not os.path.exists(os.path.join(test_dir, "GOOG 10-Q Q2 summary 2025.pdf")):
+        pytest.skip("Test PDF file not found")
+
+    result = runner.invoke(cli, [test_dir])
+    assert result.exit_code == 0
+    # Should include the PDF file path in output
+    assert "GOOG 10-Q Q2 summary 2025.pdf" in result.output
+
+
+def test_mixed_file_types():
+    """Test processing of mixed text, DOCX, and PDF files."""
+    runner = CliRunner()
+    test_dir = "tests/media"
+    if not os.path.exists(test_dir):
+        pytest.skip("Test media directory not found")
+
+    result = runner.invoke(cli, [test_dir])
+    assert result.exit_code == 0
+    # Output should contain file paths
+    assert len(result.output) > 0

@@ -3,6 +3,8 @@ import sys
 from fnmatch import fnmatch
 
 import click
+import pdfplumber
+from docx import Document
 
 global_index = 1
 
@@ -52,6 +54,36 @@ def add_line_numbers(content):
     return "\n".join(numbered_lines)
 
 
+def extract_docx_text(file_path):
+    """Extract text from a DOCX file."""
+    doc = Document(file_path)
+    text_parts = []
+    for para in doc.paragraphs:
+        text_parts.append(para.text)
+    for table in doc.tables:
+        for row in table.rows:
+            row_cells = [cell.text for cell in row.cells]
+            text_parts.append(" | ".join(row_cells))
+    return "\n".join(text_parts)
+
+
+def extract_pdf_text(file_path):
+    """Extract text and tables from a PDF file."""
+    text_parts = []
+    with pdfplumber.open(file_path) as pdf:
+        for page_num, page in enumerate(pdf.pages, 1):
+            page_text = page.extract_text()
+            if page_text:
+                text_parts.append(page_text)
+            tables = page.extract_tables()
+            if tables:
+                for table_idx, table in enumerate(tables, 1):
+                    text_parts.append(f"\n[Table {table_idx} on page {page_num}]")
+                    for row in table:
+                        text_parts.append(" | ".join(str(cell) if cell else "" for cell in row))
+    return "\n".join(text_parts)
+
+
 def print_path(writer, path, content, cxml, markdown, line_numbers):
     if cxml:
         print_as_xml(writer, path, content, line_numbers)
@@ -98,6 +130,17 @@ def print_as_markdown(writer, path, content, line_numbers):
     writer(f"{backticks}")
 
 
+def read_file_content(file_path):
+    """Read content from a file, handling different formats."""
+    if file_path.endswith(".docx"):
+        return extract_docx_text(file_path)
+    elif file_path.endswith(".pdf"):
+        return extract_pdf_text(file_path)
+    else:
+        with open(file_path, "r") as f:
+            return f.read()
+
+
 def process_path(
     path,
     extensions,
@@ -113,10 +156,10 @@ def process_path(
 ):
     if os.path.isfile(path):
         try:
-            with open(path, "r") as f:
-                print_path(writer, path, f.read(), claude_xml, markdown, line_numbers)
-        except UnicodeDecodeError:
-            warning_message = f"Warning: Skipping file {path} due to UnicodeDecodeError"
+            content = read_file_content(path)
+            print_path(writer, path, content, claude_xml, markdown, line_numbers)
+        except (UnicodeDecodeError, Exception) as e:
+            warning_message = f"Warning: Skipping file {path} due to {type(e).__name__}"
             click.echo(click.style(warning_message, fg="red"), err=True)
     elif os.path.isdir(path):
         for root, dirs, files in os.walk(path):
@@ -156,18 +199,18 @@ def process_path(
             for file in sorted(files):
                 file_path = os.path.join(root, file)
                 try:
-                    with open(file_path, "r") as f:
-                        print_path(
-                            writer,
-                            file_path,
-                            f.read(),
-                            claude_xml,
-                            markdown,
-                            line_numbers,
-                        )
-                except UnicodeDecodeError:
+                    content = read_file_content(file_path)
+                    print_path(
+                        writer,
+                        file_path,
+                        content,
+                        claude_xml,
+                        markdown,
+                        line_numbers,
+                    )
+                except (UnicodeDecodeError, Exception) as e:
                     warning_message = (
-                        f"Warning: Skipping file {file_path} due to UnicodeDecodeError"
+                        f"Warning: Skipping file {file_path} due to {type(e).__name__}"
                     )
                     click.echo(click.style(warning_message, fg="red"), err=True)
 
