@@ -42,6 +42,20 @@ def read_docx(path):
     return "\n\n".join(paragraphs)
 
 
+def read_pdf(path):
+    """Extract text content from a .pdf file using pymupdf."""
+    import pymupdf
+
+    doc = pymupdf.open(path)
+    pages = []
+    for page in doc:
+        text = page.get_text()
+        if text.strip():
+            pages.append(text.strip())
+    doc.close()
+    return "\n\n".join(pages)
+
+
 def should_ignore(path, gitignore_rules):
     for rule in gitignore_rules:
         if fnmatch(os.path.basename(path), rule):
@@ -131,8 +145,11 @@ def process_path(
 ):
     if os.path.isfile(path):
         try:
-            if path.lower().endswith(".docx"):
+            lower_path = path.lower()
+            if lower_path.endswith(".docx"):
                 content = read_docx(path)
+            elif lower_path.endswith(".pdf"):
+                content = read_pdf(path)
             else:
                 with open(path, "r") as f:
                     content = f.read()
@@ -178,8 +195,11 @@ def process_path(
             for file in sorted(files):
                 file_path = os.path.join(root, file)
                 try:
-                    if file_path.lower().endswith(".docx"):
+                    lower_file_path = file_path.lower()
+                    if lower_file_path.endswith(".docx"):
                         content = read_docx(file_path)
+                    elif lower_file_path.endswith(".pdf"):
+                        content = read_pdf(file_path)
                     else:
                         with open(file_path, "r") as f:
                             content = f.read()

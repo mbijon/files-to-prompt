@@ -1,6 +1,7 @@
 import os
 import zipfile
 import pytest
+import pymupdf
 import re
 
 from click.testing import CliRunner
@@ -24,6 +25,15 @@ def create_docx(path, paragraphs):
     )
     with zipfile.ZipFile(path, "w") as zf:
         zf.writestr("word/document.xml", document_xml)
+
+
+def create_pdf(path, text):
+    """Create a minimal PDF file with the given text."""
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), text)
+    doc.save(path)
+    doc.close()
 
 
 def filenames_from_cxml(cxml_string):
@@ -497,3 +507,41 @@ def test_docx_xml_format(tmpdir):
         assert result.exit_code == 0
         assert "<source>test.docx</source>" in result.output
         assert "DOCX for XML output" in result.output
+
+
+def test_pdf_single_file(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        create_pdf("test.pdf", "Hello from a PDF file")
+
+        result = runner.invoke(cli, ["test.pdf"])
+        assert result.exit_code == 0
+        assert "test.pdf" in result.output
+        assert "Hello from a PDF file" in result.output
+
+
+def test_pdf_in_directory(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir")
+        create_pdf("test_dir/doc.pdf", "PDF content here")
+        with open("test_dir/plain.txt", "w") as f:
+            f.write("Plain text content")
+
+        result = runner.invoke(cli, ["test_dir"])
+        assert result.exit_code == 0
+        assert "test_dir/doc.pdf" in result.output
+        assert "PDF content here" in result.output
+        assert "test_dir/plain.txt" in result.output
+        assert "Plain text content" in result.output
+
+
+def test_pdf_xml_format(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        create_pdf("test.pdf", "PDF for XML output")
+
+        result = runner.invoke(cli, ["test.pdf", "--cxml"])
+        assert result.exit_code == 0
+        assert "<source>test.pdf</source>" in result.output
+        assert "PDF for XML output" in result.output
