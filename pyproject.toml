@@ -11,6 +11,7 @@ classifiers = [
 ]
 dependencies = [
     "click",
+    "openpyxl",
     "pymupdf",
 ]
 

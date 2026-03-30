@@ -1,3 +1,5 @@
+import csv
+import io
 import os
 import sys
 import zipfile
@@ -54,6 +56,28 @@ def read_pdf(path):
             pages.append(text.strip())
     doc.close()
     return "\n\n".join(pages)
+
+
+def read_xlsx(path):
+    """Extract text content from a .xlsx file as CSV-formatted text."""
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    sheets = []
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        for row in ws.iter_rows(values_only=True):
+            writer.writerow(["" if cell is None else cell for cell in row])
+        sheet_csv = buf.getvalue().strip()
+        if sheet_csv:
+            if len(wb.sheetnames) > 1:
+                sheets.append(f"Sheet: {sheet_name}\n{sheet_csv}")
+            else:
+                sheets.append(sheet_csv)
+    wb.close()
+    return "\n\n".join(sheets)
 
 
 def should_ignore(path, gitignore_rules):
@@ -150,6 +174,8 @@ def process_path(
                 content = read_docx(path)
             elif lower_path.endswith(".pdf"):
                 content = read_pdf(path)
+            elif lower_path.endswith(".xlsx"):
+                content = read_xlsx(path)
             else:
                 with open(path, "r") as f:
                     content = f.read()
@@ -200,6 +226,8 @@ def process_path(
                         content = read_docx(file_path)
                     elif lower_file_path.endswith(".pdf"):
                         content = read_pdf(file_path)
+                    elif lower_file_path.endswith(".xlsx"):
+                        content = read_xlsx(file_path)
                     else:
                         with open(file_path, "r") as f:
                             content = f.read()
