@@ -1,6 +1,8 @@
 import os
 import sys
+import zipfile
 from fnmatch import fnmatch
+from xml.etree import ElementTree
 
 import click
 
@@ -22,6 +24,22 @@ EXT_TO_LANG = {
     "sh": "bash",
     "rb": "ruby",
 }
+
+
+DOCX_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def read_docx(path):
+    """Extract text content from a .docx file."""
+    with zipfile.ZipFile(path) as zf:
+        xml_content = zf.read("word/document.xml")
+    tree = ElementTree.fromstring(xml_content)
+    paragraphs = []
+    for para in tree.iter(f"{DOCX_NS}p"):
+        texts = [node.text for node in para.iter(f"{DOCX_NS}t") if node.text]
+        if texts:
+            paragraphs.append("".join(texts))
+    return "\n\n".join(paragraphs)
 
 
 def should_ignore(path, gitignore_rules):
@@ -113,8 +131,12 @@ def process_path(
 ):
     if os.path.isfile(path):
         try:
-            with open(path, "r") as f:
-                print_path(writer, path, f.read(), claude_xml, markdown, line_numbers)
+            if path.lower().endswith(".docx"):
+                content = read_docx(path)
+            else:
+                with open(path, "r") as f:
+                    content = f.read()
+            print_path(writer, path, content, claude_xml, markdown, line_numbers)
         except UnicodeDecodeError:
             warning_message = f"Warning: Skipping file {path} due to UnicodeDecodeError"
             click.echo(click.style(warning_message, fg="red"), err=True)
@@ -156,15 +178,19 @@ def process_path(
             for file in sorted(files):
                 file_path = os.path.join(root, file)
                 try:
-                    with open(file_path, "r") as f:
-                        print_path(
-                            writer,
-                            file_path,
-                            f.read(),
-                            claude_xml,
-                            markdown,
-                            line_numbers,
-                        )
+                    if file_path.lower().endswith(".docx"):
+                        content = read_docx(file_path)
+                    else:
+                        with open(file_path, "r") as f:
+                            content = f.read()
+                    print_path(
+                        writer,
+                        file_path,
+                        content,
+                        claude_xml,
+                        markdown,
+                        line_numbers,
+                    )
                 except UnicodeDecodeError:
                     warning_message = (
                         f"Warning: Skipping file {file_path} due to UnicodeDecodeError"
