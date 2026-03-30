@@ -235,7 +235,7 @@ def test_mixed_paths_with_options(tmpdir):
 
 
 def test_binary_file_warning(tmpdir):
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with tmpdir.as_cwd():
         os.makedirs("test_dir")
         with open("test_dir/binary_file.bin", "wb") as f:
