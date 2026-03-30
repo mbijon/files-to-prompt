@@ -1,6 +1,10 @@
+import csv
+import io
 import os
 import sys
+import zipfile
 from fnmatch import fnmatch
+from xml.etree import ElementTree
 
 import click
 
@@ -22,6 +26,58 @@ EXT_TO_LANG = {
     "sh": "bash",
     "rb": "ruby",
 }
+
+
+DOCX_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def read_docx(path):
+    """Extract text content from a .docx file."""
+    with zipfile.ZipFile(path) as zf:
+        xml_content = zf.read("word/document.xml")
+    tree = ElementTree.fromstring(xml_content)
+    paragraphs = []
+    for para in tree.iter(f"{DOCX_NS}p"):
+        texts = [node.text for node in para.iter(f"{DOCX_NS}t") if node.text]
+        if texts:
+            paragraphs.append("".join(texts))
+    return "\n\n".join(paragraphs)
+
+
+def read_pdf(path):
+    """Extract text content from a .pdf file using pymupdf."""
+    import pymupdf
+
+    doc = pymupdf.open(path)
+    pages = []
+    for page in doc:
+        text = page.get_text()
+        if text.strip():
+            pages.append(text.strip())
+    doc.close()
+    return "\n\n".join(pages)
+
+
+def read_xlsx(path):
+    """Extract text content from a .xlsx file as CSV-formatted text."""
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    sheets = []
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        for row in ws.iter_rows(values_only=True):
+            writer.writerow(["" if cell is None else cell for cell in row])
+        sheet_csv = buf.getvalue().strip()
+        if sheet_csv:
+            if len(wb.sheetnames) > 1:
+                sheets.append(f"Sheet: {sheet_name}\n{sheet_csv}")
+            else:
+                sheets.append(sheet_csv)
+    wb.close()
+    return "\n\n".join(sheets)
 
 
 def should_ignore(path, gitignore_rules):
@@ -113,8 +169,17 @@ def process_path(
 ):
     if os.path.isfile(path):
         try:
-            with open(path, "r") as f:
-                print_path(writer, path, f.read(), claude_xml, markdown, line_numbers)
+            lower_path = path.lower()
+            if lower_path.endswith(".docx"):
+                content = read_docx(path)
+            elif lower_path.endswith(".pdf"):
+                content = read_pdf(path)
+            elif lower_path.endswith(".xlsx"):
+                content = read_xlsx(path)
+            else:
+                with open(path, "r") as f:
+                    content = f.read()
+            print_path(writer, path, content, claude_xml, markdown, line_numbers)
         except UnicodeDecodeError:
             warning_message = f"Warning: Skipping file {path} due to UnicodeDecodeError"
             click.echo(click.style(warning_message, fg="red"), err=True)
@@ -156,15 +221,24 @@ def process_path(
             for file in sorted(files):
                 file_path = os.path.join(root, file)
                 try:
-                    with open(file_path, "r") as f:
-                        print_path(
-                            writer,
-                            file_path,
-                            f.read(),
-                            claude_xml,
-                            markdown,
-                            line_numbers,
-                        )
+                    lower_file_path = file_path.lower()
+                    if lower_file_path.endswith(".docx"):
+                        content = read_docx(file_path)
+                    elif lower_file_path.endswith(".pdf"):
+                        content = read_pdf(file_path)
+                    elif lower_file_path.endswith(".xlsx"):
+                        content = read_xlsx(file_path)
+                    else:
+                        with open(file_path, "r") as f:
+                            content = f.read()
+                    print_path(
+                        writer,
+                        file_path,
+                        content,
+                        claude_xml,
+                        markdown,
+                        line_numbers,
+                    )
                 except UnicodeDecodeError:
                     warning_message = (
                         f"Warning: Skipping file {file_path} due to UnicodeDecodeError"

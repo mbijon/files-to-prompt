@@ -1,10 +1,56 @@
 import os
+import zipfile
 import pytest
+import openpyxl
+import pymupdf
 import re
 
 from click.testing import CliRunner
 
 from files_to_prompt.cli import cli
+
+
+def create_docx(path, paragraphs):
+    """Create a minimal .docx file with the given paragraph texts."""
+    ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    body_parts = []
+    for text in paragraphs:
+        body_parts.append(
+            f'<w:p><w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+        )
+    document_xml = (
+        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:document xmlns:w="{ns}"><w:body>'
+        f'{"".join(body_parts)}'
+        f'</w:body></w:document>'
+    )
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("word/document.xml", document_xml)
+
+
+def create_pdf(path, text):
+    """Create a minimal PDF file with the given text."""
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), text)
+    doc.save(path)
+    doc.close()
+
+
+def create_xlsx(path, sheets):
+    """Create a .xlsx file. sheets is a dict of {sheet_name: [[row], ...]}."""
+    wb = openpyxl.Workbook()
+    first = True
+    for name, rows in sheets.items():
+        if first:
+            ws = wb.active
+            ws.title = name
+            first = False
+        else:
+            ws = wb.create_sheet(title=name)
+        for row in rows:
+            ws.append(row)
+    wb.save(path)
 
 
 def filenames_from_cxml(cxml_string):
@@ -235,7 +281,7 @@ def test_mixed_paths_with_options(tmpdir):
 
 
 def test_binary_file_warning(tmpdir):
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with tmpdir.as_cwd():
         os.makedirs("test_dir")
         with open("test_dir/binary_file.bin", "wb") as f:
@@ -439,3 +485,141 @@ def test_markdown(tmpdir, option):
             "`````\n"
         )
         assert expected.strip() == actual.strip()
+
+
+def test_docx_single_file(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        create_docx("test.docx", ["Hello from a DOCX file", "Second paragraph"])
+
+        result = runner.invoke(cli, ["test.docx"])
+        assert result.exit_code == 0
+        assert "test.docx" in result.output
+        assert "Hello from a DOCX file" in result.output
+        assert "Second paragraph" in result.output
+
+
+def test_docx_in_directory(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir")
+        create_docx("test_dir/doc.docx", ["DOCX content here"])
+        with open("test_dir/plain.txt", "w") as f:
+            f.write("Plain text content")
+
+        result = runner.invoke(cli, ["test_dir"])
+        assert result.exit_code == 0
+        assert "test_dir/doc.docx" in result.output
+        assert "DOCX content here" in result.output
+        assert "test_dir/plain.txt" in result.output
+        assert "Plain text content" in result.output
+
+
+def test_docx_xml_format(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        create_docx("test.docx", ["DOCX for XML output"])
+
+        result = runner.invoke(cli, ["test.docx", "--cxml"])
+        assert result.exit_code == 0
+        assert "<source>test.docx</source>" in result.output
+        assert "DOCX for XML output" in result.output
+
+
+def test_pdf_single_file(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        create_pdf("test.pdf", "Hello from a PDF file")
+
+        result = runner.invoke(cli, ["test.pdf"])
+        assert result.exit_code == 0
+        assert "test.pdf" in result.output
+        assert "Hello from a PDF file" in result.output
+
+
+def test_pdf_in_directory(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir")
+        create_pdf("test_dir/doc.pdf", "PDF content here")
+        with open("test_dir/plain.txt", "w") as f:
+            f.write("Plain text content")
+
+        result = runner.invoke(cli, ["test_dir"])
+        assert result.exit_code == 0
+        assert "test_dir/doc.pdf" in result.output
+        assert "PDF content here" in result.output
+        assert "test_dir/plain.txt" in result.output
+        assert "Plain text content" in result.output
+
+
+def test_pdf_xml_format(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        create_pdf("test.pdf", "PDF for XML output")
+
+        result = runner.invoke(cli, ["test.pdf", "--cxml"])
+        assert result.exit_code == 0
+        assert "<source>test.pdf</source>" in result.output
+        assert "PDF for XML output" in result.output
+
+
+def test_xlsx_single_file(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        create_xlsx("test.xlsx", {"Sheet1": [["Name", "Age"], ["Alice", 30]]})
+
+        result = runner.invoke(cli, ["test.xlsx"])
+        assert result.exit_code == 0
+        assert "test.xlsx" in result.output
+        assert "Name,Age" in result.output
+        assert "Alice,30" in result.output
+
+
+def test_xlsx_multiple_sheets(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        create_xlsx(
+            "multi.xlsx",
+            {
+                "Users": [["Name", "Age"], ["Alice", 30]],
+                "Scores": [["Subject", "Score"], ["Math", 95]],
+            },
+        )
+
+        result = runner.invoke(cli, ["multi.xlsx"])
+        assert result.exit_code == 0
+        assert "Sheet: Users" in result.output
+        assert "Name,Age" in result.output
+        assert "Alice,30" in result.output
+        assert "Sheet: Scores" in result.output
+        assert "Subject,Score" in result.output
+        assert "Math,95" in result.output
+
+
+def test_xlsx_in_directory(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        os.makedirs("test_dir")
+        create_xlsx("test_dir/data.xlsx", {"Sheet1": [["x", "y"], [1, 2]]})
+        with open("test_dir/plain.txt", "w") as f:
+            f.write("Plain text content")
+
+        result = runner.invoke(cli, ["test_dir"])
+        assert result.exit_code == 0
+        assert "test_dir/data.xlsx" in result.output
+        assert "x,y" in result.output
+        assert "1,2" in result.output
+        assert "test_dir/plain.txt" in result.output
+        assert "Plain text content" in result.output
+
+
+def test_xlsx_xml_format(tmpdir):
+    runner = CliRunner()
+    with tmpdir.as_cwd():
+        create_xlsx("test.xlsx", {"Sheet1": [["a", "b"], [1, 2]]})
+
+        result = runner.invoke(cli, ["test.xlsx", "--cxml"])
+        assert result.exit_code == 0
+        assert "<source>test.xlsx</source>" in result.output
+        assert "a,b" in result.output
